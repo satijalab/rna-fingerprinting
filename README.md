@@ -20,4 +20,4 @@ devtools::install_github("satijalab/rna-fingerprinting")
 
 ## Vignettes
 
-Knitted vignettes (HTML files) showing example usage can be found in the `docs` folder of this repository. See [example usage](https://github.com/satijalab/rna-fingerprinting/blob/main/docs/jost-example-usage.html) (recommended start) and [example usage with precomputed fingerprints](https://github.com/satijalab/rna-fingerprinting/blob/main/docs/jost-gwps-example.html).
+Knitted vignettes (HTML files) showing example usage can be found in the `docs` folder of this repository. See [example usage](https://satijalab.github.io/rna-fingerprinting/jost-example-usage.html) (recommended start) and [example usage with precomputed fingerprints](https://satijalab.github.io/rna-fingerprinting/jost-gwps-example.html).
