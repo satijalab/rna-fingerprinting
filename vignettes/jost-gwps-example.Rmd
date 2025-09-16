@@ -1,0 +1,129 @@
+---
+title: "jost-gwps-example"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{jost-gwps-example}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+## Set-up 
+
+In this vignette, we demonstrate RNA fingerprinting using the pre-computed fingerprints for Genome-Wide Perturb-Seq (GWPS) on a Perturb-seq dataset that can be assessed on GEO under accession number GSE132080. Note that the `RNAFingerprintingData` package needs to be installed to access the GWPS data. We can begin by loading in the appropriate packages and setting up the data.
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  purl = FALSE
+)
+```
+
+```{r setup, message = FALSE, warning = FALSE}
+library(RNAFingerprinting)
+library(RNAFingerprintingData)
+library(Seurat)
+library(stringr)
+options(future.globals.maxSize = 10 * 1024^3)
+
+counts <- ReadMtx(mtx = "/brahms/grabskii/jost_data/GSE132080_10X_matrix.mtx.gz",
+                  cells = "/brahms/grabskii/jost_data/GSE132080_10X_barcodes.tsv.gz", 
+                  features = "/brahms/grabskii/jost_data/GSE132080_10X_genes.tsv.gz")
+meta_data <- read.csv("/brahms/grabskii/jost_data/GSE132080_cell_identities.csv.gz")
+rownames(meta_data) <- meta_data$cell_barcode
+jost <- CreateSeuratObject(counts = counts, meta.data = meta_data)
+jost <- subset(jost, subset = number_of_cells == 1) 
+jost <- subset(jost, subset = guide_identity != '*')  
+jost <- jost[,!is.na(jost$guide_identity)]
+jost$gene <- str_extract(jost$guide_identity, "^[^_]+")
+```
+
+We normalize the query data with `SCTransform`; importantly, we specify `return.only.var.genes = FALSE`.
+
+```{r, message=FALSE, warning=FALSE}
+jost <- SCTransform(jost, return.only.var.genes = FALSE)
+```
+
+Now we can install the precomputed GWPS dictionary. Note that all available dictionaries can be viewed using `AvailableDictionaries()`. 
+
+```{r,message=FALSE,warning=FALSE}
+InstallPrecomputedDictionary(name = 'gwps')
+```
+
+Next, we can load in this dictionary using the convenience loader function `LoadPrecomputedDictionary`. The GWPS fingerprints were learned with genes in the ENSEMBL ID format, whereas our query data uses gene symbols. To make these compatible, we specify `gene_key = 'SYMBOL'` when loading it in. More generally, the `ConvertGenes` function can be used to update any set of fingerprints from one gene key type to another. 
+
+```{r, message = FALSE, warning = FALSE}
+gwps_dictionary <- LoadPrecomputedDictionary(name = 'gwps', gene_key = 'SYMBOL')
+```
+
+As a note, there is likely to be at least some degree of feature mismatch between these GWPS fingerprints and a given query dataset. While this is allowable and unlikely to yield substantive differences in results, this represents an approximation of the procedure and is a trade-off for the convenience of using these pre-computed fingerprints. 
+
+## Mapping cells at the group-level
+
+We can start by trying to map cells from the query data to GWPS at the group-level, where cells of the same condition can be assigned together. Here, we map cells according to their perturbation labels, and obtain a dataframe summarizing these assignments. This can be slow due to the size of GWPS, but faster results can be obtained using parallelization with the `mc.cores` parameter.
+
+```{r}
+jost <- FingerprintCells(jost,
+                         condition_meta = 'gene', 
+                         control_class = 'neg',
+                         dictionary = gwps_dictionary, 
+                         group_level = TRUE)
+group_level_summary <- SummarizeResults(jost, group_level = TRUE,
+                                         condition_meta = 'gene', 
+                                         control_class = 'neg')
+print(group_level_summary[1:5,])
+```
+
+Some of these assignments involve very long credible sets, which makes sense given that many of these perturbations are of genes belonging to large complexes. We can visualize these assignments using Long Island City plots. Below, we should an example of an assignment with a long credible set, and one with a short credible set. We could alternatively sort the fingerprints in alphabetical order by setting the `order` argument appropriately.
+
+```{r, fig.width=7, eval=FALSE}
+LongIslandCityPlot(jost, query = 'RPS14', condition_meta = 'gene',
+                   control_class = 'neg', dictionary = gwps_dictionary,
+                   group_level = T, cs = 10)
+LongIslandCityPlot(jost, query = 'BCR', condition_meta = 'gene',
+                   control_class = 'neg', dictionary = gwps_dictionary,
+                   group_level = T, cs = 10)
+```
+
+These plots show the conditional posterior mean coefficients for each fingerprint on the y-axis. However, in large-scale settings, this can be slow to compute. For a faster version, we can specify the argument `approx = TRUE` to instead show marginal correlations on the y-axis, e.g.:
+
+```{r, fig.width=7, warning=FALSE}
+LongIslandCityPlot(jost, query = 'RPS14', condition_meta = 'gene',
+                   control_class = 'neg', dictionary = gwps_dictionary,
+                   group_level = T, cs = 10, approx = TRUE)
+LongIslandCityPlot(jost, query = 'BCR', condition_meta = 'gene',
+                   control_class = 'neg', dictionary = gwps_dictionary,
+                   group_level = T, cs = 10, approx = TRUE)
+```
+
+To understand what genes were most responsible for driving these matches, we can use the `ExplainMatch` function. Here, the visualizations are automatically made with the stored pseudobulk GWPS object inside the precomputed dictionary, since we don't have the full GWPS object loaded in.
+
+```{r, fig.width=7, fig.height=8, warning=FALSE}
+ExplainMatch(jost, query = 'BCR', match = 'BCR', 
+             condition_meta = 'gene', control_class = 'neg', 
+             dictionary = gwps_dictionary, group_level = T, 
+             num_genes = 25)
+```
+
+## Mapping cells individually
+
+We can also map cells on an individual basis. This will be slower than group-level classification, so here we speed it up by using parallelization with `mc.cores`.
+
+```{r}
+jost <- FingerprintCells(jost, condition_meta = 'gene', control_class = 'neg', 
+                         dictionary = gwps_dictionary, 
+                         group_level = FALSE, mc.cores = 10)
+cell_level_summary <- SummarizeResults(jost, group_level = FALSE,
+                                       condition_meta = 'gene', 
+                                       control_class = 'neg')
+print(head(cell_level_summary))
+```
+
+We can visualize these assignments by using the `ProjectFingerprints` function to create a UMAP of the projections of each assigned cell onto the fingerprints. Below, we overlay the plot with each cell's true perturbation label:
+
+```{r, fig.width=7, fig.height=6, message=FALSE, warning=FALSE}
+jost <- ProjectFingerprints(jost, 'gene', 
+                            'neg', gwps_dictionary)
+DimPlot(jost, group.by = 'gene', 
+        reduction = 'projUMAP', label = T)
+```
