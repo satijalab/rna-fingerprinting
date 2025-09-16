@@ -4,10 +4,10 @@ RNA fingerprinting is a statistical framework for scRNA-seq data that maps trans
 
 ## Installation
 
-If you would like to use any of our precomputed fingerprints (in addition or instead of estimating fingerprints from your own perturbation dictionaries), these can be accessed by installing the suggested dependency `RNAFingerprintingData` as follows:
+If you would like to use any of our precomputed fingerprints (in addition to or instead of estimating fingerprints from your own perturbation dictionaries), these can be accessed by installing the suggested dependency `RNAFingerprintingData` as follows:
 
 ```
-# install.packages("remotes"")
+# install.packages("remotes")
 remotes::install_url("https://github.com/satijalab/rna-fingerprinting-data/raw/refs/heads/main/RNAFingerprintingData_0.1.0.tar.gz")
 ```
 
