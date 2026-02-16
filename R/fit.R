@@ -5,7 +5,7 @@
 #'
 #' @keywords internal
 fit <- function(
-    data,
+    get_block,
     perturbation_meta,
     features,
     min_cells = 10,
@@ -16,7 +16,8 @@ fit <- function(
   message('Processing data...')
 
   # Run PCA on control cells to capture baseline signal
-  ctrl.pdev <- data[features,perturbation_meta=='control']
+  ctrl.cells <- names(perturbation_meta)[perturbation_meta == "control"]
+  ctrl.pdev <- get_block(features, ctrl.cells)
   ctrl.mus <- rowMeans(ctrl.pdev)
   PCs <- prcomp_irlba(t(ctrl.pdev),n=30)
 
@@ -46,7 +47,8 @@ fit <- function(
   fits <- pbmclapply(perturbations,function(p) {
 
     # Perform baseline subtraction on cells that received perturbation p
-    pdev <- data[features,perturbation_meta==p]
+    p.cells <- names(perturbation_meta)[perturbation_meta == p]
+    pdev <- get_block(features, p.cells)
     reconstruct <- sweep(PCs$rotation%*%crossprod(PCs$rotation,sweep(pdev,1,ctrl.mus)),
                          1,ctrl.mus,'+')
     residual <- pdev-reconstruct
@@ -157,6 +159,7 @@ fit <- function(
 #' @param override_filter If TRUE, low-signal fingerprints will not be filtered out (default FALSE)
 #' @param mc.cores The number of cores to use for parallelization (default 1)
 #' @param seed.use Set a random seed (default 1448145); setting NULL will not set a seed
+#' @param sct.stored Whether the SCT assay is present (default TRUE); set to FALSE for large objects where FitSCTModelOnly was run
 #'
 #' @return A list of fingerprints and their distributions for downstream fingerprinting analysis:
 #' \describe{
@@ -165,6 +168,7 @@ fit <- function(
 #' }
 #'
 #' @import Seurat
+#' @importFrom SeuratObject Assays Layers
 #'
 #' @export
 #'
@@ -186,31 +190,71 @@ LearnDictionary <- function(
     min_cells = 10,
     override_filter = FALSE,
     mc.cores = 1,
-    seed.use = 1448145
+    seed.use = 1448145,
+    sct.stored = TRUE
 ) {
   # Set up and verify parameters
   if (!is.null(x = seed.use)) {
     set.seed(seed = seed.use)
   }
-  if (!"SCT" %in% Assays(object)) {
-    stop("SCTransform() must be run before calling this function (recommended to set return.only.var.genes=FALSE). No 'SCT' assay found.")
+  
+  if (isTRUE(sct.stored)) {
+    if (!"SCT" %in% SeuratObject::Assays(object)) {
+      stop("SCTransform() must be run before calling this function (recommended to set return.only.var.genes=FALSE). No 'SCT' assay found.")
+    }
+    sct_data <- GetAssayData(
+      object,
+      assay = 'SCT',
+      layer = 'scale.data'
+    )
+    missing <- setdiff(features, rownames(sct_data))
+    if (length(missing) > 0) {
+      message(paste0("The following ", length(missing), " features are not present in the SCT assay:",
+                     paste(head(missing, 50), collapse=', '), '...'))
+      warning(paste0(length(missing), " features were not present in the SCT assay. If larger than expected, ensure SCTransform() was run with return.only.var.genes=FALSE."))
+      features <- intersect(features, rownames(sct_data))
+    }
+    get_block <- function(feats, cells) {
+      sct_data[feats, cells, drop = FALSE]
+    }
+  } else {
+    stored <- object@misc$RNAFingerprinting$SCT_model
+    if (is.null(stored) || is.null(stored$model_list) || length(stored$model_list) < 1) {
+      stop("sct.stored=FALSE but no SCT model found at object@misc$RNAFingerprinting$SCT_model$model_list. FitSCTModelOnly() must be run first.")
+    }
+    if (!"RNA" %in% SeuratObject::Assays(object)) {
+      stop("sct.stored=FALSE requires an RNA assay with counts.")
+    }
+    if (!"counts" %in% SeuratObject::Layers(object[["RNA"]])) {
+      stop("sct.stored=FALSE requires RNA assay to have a 'counts' layer.")
+    }
+    model <- stored$model_list[[1]]
+    vst_out <- Seurat:::SCTModel_to_vst(model)
+    model_features <- rownames(vst_out$model_pars_fit)
+    missing <- setdiff(features, model_features)
+    if (length(missing) > 0) {
+      message(paste0(
+        "The following ", length(missing),
+        " features are not present in the stored SCT model: ",
+        paste(head(missing, 50), collapse = ", "),
+        if (length(missing) > 50) " ..." else ""
+      ))
+      warning(paste0(
+        length(missing),
+        " features were not present in the stored SCT model and were dropped."
+      ), call. = FALSE)
+      features <- intersect(features, model_features)
+    }
+    get_block <- function(feats, cells) {
+      FetchResidualsFromMisc(object, feats, cells)
+    }
   }
-  sct_data <- GetAssayData(
-    object,
-    assay = 'SCT',
-    layer = 'scale.data'
-  )
-  missing <- setdiff(features, rownames(sct_data))
-  if (length(missing) > 0) {
-    message(paste0("The following ", length(missing), " features are not present in the SCT assay:",
-                   paste(head(missing, 50), collapse=', '), '...'))
-    warning(paste0(length(missing), " features were not present in the SCT assay. If larger than expected, ensure SCTransform() was run with return.only.var.genes=FALSE."))
-    features <- intersect(features, rownames(sct_data))
-  }
+  
   if (!perturbation_meta %in% colnames(object@meta.data)) {
     stop('Perturbation metadata column not found.')
   }
   perturbation_metadata <- as.character(object@meta.data[,perturbation_meta])
+  names(perturbation_metadata) <- colnames(object)
   if (sum(perturbation_metadata==control_class)==0) {
     stop('No cells with control class label found.')
   }
@@ -218,7 +262,7 @@ LearnDictionary <- function(
 
   # Learn fingerprints
   fingerprints <- fit(
-    data = sct_data,
+    get_block = get_block,
     perturbation_meta = perturbation_metadata,
     features = features,
     min_cells = min_cells,

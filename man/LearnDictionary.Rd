@@ -12,7 +12,8 @@ LearnDictionary(
   min_cells = 10,
   override_filter = FALSE,
   mc.cores = 1,
-  seed.use = 1448145
+  seed.use = 1448145,
+  sct.stored = TRUE
 )
 }
 \arguments{
@@ -31,6 +32,8 @@ LearnDictionary(
 \item{mc.cores}{The number of cores to use for parallelization (default 1)}
 
 \item{seed.use}{Set a random seed (default 1448145); setting NULL will not set a seed}
+
+\item{sct.stored}{Whether the SCT assay is present (default TRUE); set to FALSE for large objects where FitSCTModelOnly was run}
 }
 \value{
 A list of fingerprints and their distributions for downstream fingerprinting analysis:
