@@ -81,7 +81,13 @@ FetchResidualsFromMisc <- function(
   min_var <- vst_out$arguments$min_variance
   if (identical(min_var, "umi_median")) {
     if (is.null(object@misc$RNAFingerprinting$SCT_model$min_var_cached)) {
-      nz_median <- stats::median(umi_sub@x)
+      chunk_size <- 2000L 
+      all_cells <- colnames(Seurat::GetAssayData(object, assay = "RNA", layer = "counts"))
+      cells0 <- all_cells[seq_len(min(chunk_size, length(all_cells)))]
+      umi0 <- SeuratObject::as.sparse(
+        Seurat::GetAssayData(object, assay = "RNA", layer = "counts")[, cells0, drop = FALSE]
+      )
+      nz_median <- stats::median(umi0@x)
       object@misc$RNAFingerprinting$SCT_model$min_var_cached <- (nz_median / 5)^2
     }
     min_var <- object@misc$RNAFingerprinting$SCT_model$min_var_cached
