@@ -193,6 +193,12 @@ ChooseFeatures <- function(
       assay = 'RNA',
       layer = 'counts'
     )
+    if (inherits(counts, "IterableMatrix")) {
+      rm <- BPCells::matrix_stats(counts, row_stats = "mean")$row_stats["mean", ]
+    } else {
+      rm <- Matrix::rowMeans(counts)
+    }
+    features <- rownames(counts)[rm > mean_expression]
     features <- rownames(counts)[Matrix::rowMeans(counts) > mean_expression]
   }
 
