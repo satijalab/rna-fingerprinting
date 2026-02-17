@@ -219,8 +219,8 @@ LearnDictionary <- function(
     }
   } else {
     stored <- object@misc$RNAFingerprinting$SCT_model
-    if (is.null(stored) || is.null(stored$model_list) || length(stored$model_list) < 1) {
-      stop("sct.stored=FALSE but no SCT model found at object@misc$RNAFingerprinting$SCT_model$model_list. FitSCTModelOnly() must be run first.")
+    if (is.null(stored) || is.null(stored$vst_out) || length(stored$vst_out) < 1) {
+      stop("sct.stored=FALSE but no SCT model found at object@misc$RNAFingerprinting$SCT_model. ComputeSCTModel() must be run first.")
     }
     if (!"RNA" %in% SeuratObject::Assays(object)) {
       stop("sct.stored=FALSE requires an RNA assay with counts.")
@@ -228,8 +228,9 @@ LearnDictionary <- function(
     if (!"counts" %in% SeuratObject::Layers(object[["RNA"]])) {
       stop("sct.stored=FALSE requires RNA assay to have a 'counts' layer.")
     }
-    model <- stored$model_list[[1]]
-    vst_out <- Seurat:::SCTModel_to_vst(model)
+    
+    vst_out <- stored$vst_out
+    
     model_features <- rownames(vst_out$model_pars_fit)
     missing <- setdiff(features, model_features)
     if (length(missing) > 0) {
